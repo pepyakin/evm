@@ -316,7 +316,7 @@ pub trait BlockExecutor {
             return Ok(None);
         }
 
-        let gas_used = self.commit_transaction(output)?;
+        let gas_used = self.commit_transaction(output);
         Ok(Some(gas_used))
     }
 
@@ -348,10 +348,7 @@ pub trait BlockExecutor {
     ///
     /// # Parameters
     /// - `output`: The transaction output containing execution result and state changes
-    fn commit_transaction(
-        &mut self,
-        output: Self::Result,
-    ) -> Result<GasOutput, BlockExecutionError>;
+    fn commit_transaction(&mut self, output: Self::Result) -> GasOutput;
 
     /// Applies any necessary changes after executing the block's transactions, completes execution
     /// and returns the underlying EVM along with execution result.
@@ -443,30 +440,8 @@ pub trait TxResult {
 
 /// A helper trait encapsulating the constraints on [`BlockExecutor`] produced by the
 /// [`BlockExecutorFactory`] to avoid duplicating them in every implementation.
-pub trait BlockExecutorFor<'a, F: BlockExecutorFactory + ?Sized, DB, I = NoOpInspector>
-where
-    Self: BlockExecutor<
-        Evm = <F::EvmFactory as EvmFactory>::Evm<DB, I>,
-        Transaction = F::Transaction,
-        Receipt = F::Receipt,
-    >,
-    DB: StateDB + 'a,
-    I: Inspector<<F::EvmFactory as EvmFactory>::Context<DB>> + 'a,
-{
-}
-
-impl<'a, F, DB, I, T> BlockExecutorFor<'a, F, DB, I> for T
-where
-    F: BlockExecutorFactory,
-    DB: StateDB + 'a,
-    I: Inspector<<F::EvmFactory as EvmFactory>::Context<DB>> + 'a,
-    T: BlockExecutor<
-        Evm = <F::EvmFactory as EvmFactory>::Evm<DB, I>,
-        Transaction = F::Transaction,
-        Receipt = F::Receipt,
-    >,
-{
-}
+pub type BlockExecutorFor<'a, F, DB, I = NoOpInspector> =
+    <F as BlockExecutorFactory>::Executor<'a, DB, I>;
 
 /// A factory that can create [`BlockExecutor`]s.
 ///
@@ -541,6 +516,13 @@ pub trait BlockExecutorFactory: 'static {
     /// Receipt type produced by the executor, see [`BlockExecutor::Receipt`].
     type Receipt;
 
+    /// The executor type this factory produces.
+    type Executor<'a, DB: StateDB, I: Inspector<<Self::EvmFactory as EvmFactory>::Context<DB>>>: BlockExecutor<
+        Evm = <Self::EvmFactory as EvmFactory>::Evm<DB, I>,
+        Transaction = Self::Transaction,
+        Receipt = Self::Receipt,
+    >;
+
     /// Reference to EVM factory used by the executor.
     fn evm_factory(&self) -> &Self::EvmFactory;
 
@@ -587,8 +569,8 @@ pub trait BlockExecutorFactory: 'static {
         &'a self,
         evm: <Self::EvmFactory as EvmFactory>::Evm<DB, I>,
         ctx: Self::ExecutionCtx<'a>,
-    ) -> impl BlockExecutorFor<'a, Self, DB, I>
+    ) -> Self::Executor<'a, DB, I>
     where
-        DB: StateDB + 'a,
-        I: Inspector<<Self::EvmFactory as EvmFactory>::Context<DB>> + 'a;
+        DB: StateDB,
+        I: Inspector<<Self::EvmFactory as EvmFactory>::Context<DB>>;
 }
